@@ -1,0 +1,16 @@
+Heurística 1
+
+En esta aplicamos 3 tipos de costos
+
+1. Desviación de edad objetivo
+2. Porcentaje de enviado hacia las canchas vs a picado directo
+3. Edad de lo enviado a canchas
+
+Solo aplicamos una cancha de descarga general.
+Para ingresar los datos de lo que se consumió de cancha se toma el valor diario y se comparte durante el día según
+sea necesario, faltando las toneladas por cubrir.
+Se considera una demanda de 150 ton/h por cada linea de astillado
+Se considera un limite de alimentacion de 125 ton/h para consumir desde cancha
+Se establece los tiempos en que las lineas estuvieron paradas a través de la planilla de tiempos perdidos.
+Para la simulación tome datos desde 01 de Dic - 06 de Dic 2025.
+
