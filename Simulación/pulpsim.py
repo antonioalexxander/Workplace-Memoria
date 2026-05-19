@@ -75,7 +75,7 @@ class PulpFacilitySimulation:
             self.stock_areas[area_id] = []
             for col_idx in range(5):
                 # Pre-fill area 1 heavily so we survive multi-week simulation starts
-                init_v = 500 if area_id == 1 else 0
+                init_v = 150 if area_id == 1 else 0
                 init_a = random.uniform(5, 10) if area_id == 1 else 0
                 col = StockColumn(env, f"Area_{area_id}_Col_{col_idx}", capacity=500, init_vol=init_v, init_age=init_a)
                 self.stock_areas[area_id].append(col)
@@ -124,7 +124,8 @@ class PulpFacilitySimulation:
                     # A random value is generated
                     randomValue = DIST_MAP[nameDist].rvs(**params)
                     # Avoid negative or extremely small numbers
-                    arrivalInterTime = max(0.5, randomValue)
+                    # It was taking me way too long, and I wasn't getting anything done. Set a time limit of 240 minutes.
+                    arrivalInterTime = max(0.5, min(randomValue, 240.0)) 
 
             # simulator queue
             yield self.env.timeout(arrivalInterTime)
