@@ -1,8 +1,24 @@
+import json
 import simpy
 import random
 import pandas as pd
 from dataclasses import dataclass
 from typing import Callable, Optional
+from scipy.stats import norm, expon, lognorm, weibull_min, gamma
+
+# Map 
+
+DIST_MAP = {
+    'norm': norm,
+    'expon': expon,
+    'lognorm': lognorm,
+    'weibull_min': weibull_min,
+    'gamma': gamma
+}
+
+days = [
+    'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
+    ]
 
 # ==========================================
 # 1. ENTITIES & DATA STRUCTURES
@@ -47,6 +63,10 @@ class PulpFacilitySimulation:
     def __init__(self, env: simpy.Environment, strategy_func: Callable):
         self.env = env
         self.strategy_func = strategy_func
+
+        # --- NEW: Upload the inter-arrival time file ---
+        with open("arrivalTime.json", "r", encoding="utf-8") as f:
+            self.masterArrivalTime = json.load(f)
         
         self.lines = [ProductionLine(env, i, hopper_capacity=500) for i in range(2)]
         
@@ -78,13 +98,55 @@ class PulpFacilitySimulation:
 
     def truck_arrival_process(self):
         truck_id = 0
-        mean_interarrival_time = 5.0 
-        
+
         while True:
-            yield self.env.timeout(random.expovariate(1.0 / mean_interarrival_time))
+            # Convert the current time from Simpy to the day of the week
+            dayiDx = int((self.env.now // 1440) % 7)
+            dayName = days[dayiDx]
+
+            # Convert the current time to hour of the day
+            hourActual = int((self.env.now // 60) % 24)
+
+            # Reconstruct the time block key
+            keyBlock = f"{hourActual:02d}:00 - {hourActual + 1:02d}:00"
+
+            # Find the corresponding setting in the uploaded JSON file
+            configBlock = self.masterArrivalTime[dayName][keyBlock]
+
+            # Time Support (En caso de Datos Insuficientes)
+            arrivalInterTime = 75.0
+
+            if isinstance(configBlock, dict):
+                nameDist = list(configBlock.keys())[0]
+                params = configBlock[nameDist]
+
+                if nameDist in DIST_MAP:
+                    # A random value is generated
+                    randomValue = DIST_MAP[nameDist].rvs(**params)
+                    # Avoid negative or extremely small numbers
+                    arrivalInterTime = max(0.5, randomValue)
+
+            # simulator queue
+            yield self.env.timeout(arrivalInterTime)
+
+            # The truck is created
             truck_id += 1
-            vol = random.uniform(28.0, 35.0)
-            age = random.uniform(1.0, 14.0)
+
+
+            paramsVol = {
+                "s" : 0.11044,
+                "loc" : -4.97973,
+                "scale" : 34.28130
+            }
+            vol = lognorm.rvs(**paramsVol)
+
+            paramsAge = {
+                "s" : 1.40205,
+                "loc" : -0.03016,
+                "scale" : 0.88713
+            }
+            age = lognorm.rvs(**paramsAge)
+
             truck = Truck(truck_id=truck_id, arrival_time=self.env.now, volume=vol, mean_age=age)
             
             self.strategy_func(truck, self)

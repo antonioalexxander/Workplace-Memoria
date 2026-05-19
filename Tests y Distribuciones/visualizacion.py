@@ -55,7 +55,7 @@ if not df.empty:
     variable = st.sidebar.selectbox(
         "1. Variable a analizar:",
         [
-            "Tasa de Llegadas (Camiones por Hora)", # NUEVA OPCIÓN DISCRETA (POISSON)
+            "Tasa de Llegadas (Camiones por Hora)", 
             "Tiempo Entre Llegadas (Minutos)", 
             "Volumen del Camión (M3SSC)", 
             "Edad de la Madera (Meses)"
@@ -78,7 +78,6 @@ if not df.empty:
     
     distribuciones_industriales = ['norm', 'expon', 'lognorm', 'uniform', 'triang', 'weibull_min', 'gamma']
     
-    # Desactivar el multiselect de fitter si estamos evaluando Poisson
     if variable == "Tasa de Llegadas (Camiones por Hora)":
         st.sidebar.info("📌 Para esta variable discreta, se ajustará automáticamente una Distribución de Poisson.")
         dists_seleccionadas = []
@@ -109,10 +108,8 @@ if not df.empty:
                 df_filtro = df[df['Nombre_Dia'].isin(dias_seleccionados)]
                 texto_dias_comb = ", ".join(dias_seleccionados)
                 
-                # Función auxiliar para extraer datos según la variable
                 def obtener_datos(df_subset):
                     if variable == "Tasa de Llegadas (Camiones por Hora)":
-                        # Agrupamos para contar cuántos camiones llegaron en cada hora específica
                         conteo = df_subset.groupby(['Fecha_Exacta', 'Hora_Dia']).size()
                         return conteo.values
                     elif variable == "Tiempo Entre Llegadas (Minutos)":
@@ -146,23 +143,20 @@ if not df.empty:
                             
                             plt.sca(axes[i])
                             
-                            # --- LÓGICA POISSON / BINOMIAL NEGATIVA MANUAL ---
+                            # --- LÓGICA DISCRETA ---
                             if variable == "Tasa de Llegadas (Camiones por Hora)":
                                 lambda_val = np.mean(data_clean)
                                 max_val = int(np.max(data_clean))
                                 
-                                # Histograma discreto
                                 bins_discretos = np.arange(0, max_val + 2) - 0.5
                                 axes[i].hist(data_clean, bins=bins_discretos, density=True, alpha=0.5, color='#1f77b4', edgecolor='black')
                                 
-                                # 1. Curva teórica Poisson (Línea roja)
                                 x_poisson = np.arange(0, max_val + 1)
                                 y_poisson = poisson.pmf(x_poisson, lambda_val)
                                 axes[i].plot(x_poisson, y_poisson, 'ro-', lw=2, label=f'Poisson (λ={lambda_val:.2f})')
                                 
-                                # 2. Curva teórica Binomial Negativa (Línea verde)
                                 varianza = np.var(data_clean)
-                                if varianza > lambda_val: # Solo aplica si hay sobredispersión
+                                if varianza > lambda_val: 
                                     p = lambda_val / varianza
                                     n = (lambda_val**2) / (varianza - lambda_val)
                                     y_nbinom = nbinom.pmf(x_poisson, n, p)
@@ -171,22 +165,25 @@ if not df.empty:
                                 axes[i].legend()
                                 axes[i].set_title(f"Bloque {etiqueta_rango} | Discretas", fontweight='bold')
                                 
-                                # Guardamos los resultados
                                 resultados_bloques[etiqueta_rango] = {
                                     "Poisson_lambda": lambda_val, 
                                     "Varianza": varianza,
                                     "Sobredispersión": bool(varianza > lambda_val)
                                 }
                                 
-                            # --- LÓGICA FITTER CONTINUA ---
+                            # --- LÓGICA CONTINUA (USANDO KS) ---
                             else:
                                 f = Fitter(data_clean, distributions=dists_seleccionadas, timeout=30)
                                 f.fit()
-                                mejor_dist = f.get_best()
-                                nombre_ganador = list(mejor_dist.keys())[0]
+                                
+                                # Extraer el ganador basado en el estadístico KS (el más cercano a 0)
+                                resumen_estadistico = f.summary(Nbest=len(dists_seleccionadas), plot=False)
+                                resumen_ordenado = resumen_estadistico.sort_values(by='ks_statistic', ascending=True)
+                                nombre_ganador = resumen_ordenado.index[0]
+                                mejor_dist = {nombre_ganador: f.fitted_param[nombre_ganador]}
+                                
                                 resultados_bloques[etiqueta_rango] = mejor_dist
                                 
-                                # Alinear los bins exactamente con los minutos enteros
                                 if variable == "Tiempo Entre Llegadas (Minutos)":
                                     max_val = int(np.ceil(np.max(data_clean)))
                                     bins_grafico = np.arange(0, max_val + 2)
@@ -195,7 +192,7 @@ if not df.empty:
                                 
                                 axes[i].hist(data_clean, bins=bins_grafico, density=True, alpha=0.4, color='gray', edgecolor='black')
                                 f.plot_pdf()
-                                axes[i].set_title(f"Bloque {etiqueta_rango} (n={len(data_clean)}) | Mejor: {nombre_ganador.upper()}", fontweight='bold')
+                                axes[i].set_title(f"Bloque {etiqueta_rango} (n={len(data_clean)}) | Mejor (KS): {nombre_ganador.upper()}", fontweight='bold')
                         else:
                             axes[i].text(0.5, 0.5, f"Sin datos suficientes\n(n={len(data_cruda)})", ha='center', va='center')
                             axes[i].set_title(f"Bloque {etiqueta_rango}", fontweight='bold')
@@ -209,17 +206,13 @@ if not df.empty:
                     st.markdown(f"### 📋 Parámetros por Bloque Horario (Datos combinados de: {texto_dias_comb})")
                     st.json(resultados_bloques)
                     
-                    # --- NUEVO: BOTÓN DE DESCARGA AUTOMÁTICA ---
-                    # Convertimos el diccionario de resultados a un string con formato JSON limpio
                     json_data = json.dumps(resultados_bloques, indent=4, ensure_ascii=False)
-                    
                     st.download_button(
-                        label="📥 Descargar Configuración para SimPy (.json)",
+                        label="📥 Descargar Configuración (.json)",
                         data=json_data,
                         file_name="config_llegadas.json",
                         mime="application/json"
                     )
-
 
                 # ----------------------------------------------------
                 # MODO 2: UN SOLO GRÁFICO CONSOLIDADO
@@ -235,6 +228,7 @@ if not df.empty:
                         with col1:
                             fig, ax = plt.subplots(figsize=(10, 6))
                             
+                            # --- LÓGICA DISCRETA ---
                             if variable == "Tasa de Llegadas (Camiones por Hora)":
                                 lambda_val = np.mean(data_clean)
                                 max_val = int(np.max(data_clean))
@@ -244,26 +238,7 @@ if not df.empty:
                                 x_poisson = np.arange(0, max_val + 1)
                                 y_poisson = poisson.pmf(x_poisson, lambda_val)
                                 ax.plot(x_poisson, y_poisson, 'ro-', lw=2, label=f'Poisson (λ={lambda_val:.2f})')
-                                ax.legend()
-                                plt.title(f"Tasa de Llegadas - Ajuste Poisson\n[Días: {texto_dias_comb}]", fontweight='bold')
-                                st.pyplot(fig)
                                 
-                                with col2:
-                                    st.markdown("### 🏆 Distribución: POISSON")
-                                    st.info(f"En promedio, llegan **{lambda_val:.2f} camiones** cada hora durante el bloque seleccionado.")
-                                    st.json({"lambda": lambda_val})
-                            if variable == "Tasa de Llegadas (Camiones por Hora)":
-                                lambda_val = np.mean(data_clean)
-                                max_val = int(np.max(data_clean))
-                                bins_discretos = np.arange(0, max_val + 2) - 0.5
-                                ax.hist(data_clean, bins=bins_discretos, density=True, alpha=0.5, color='#1f77b4', edgecolor='black')
-                                
-                                # 1. Poisson (Línea roja)
-                                x_poisson = np.arange(0, max_val + 1)
-                                y_poisson = poisson.pmf(x_poisson, lambda_val)
-                                ax.plot(x_poisson, y_poisson, 'ro-', lw=2, label=f'Poisson (λ={lambda_val:.2f})')
-                                
-                                # 2. Binomial Negativa (Línea verde)
                                 varianza = np.var(data_clean)
                                 hay_sobredispersion = varianza > lambda_val
                                 if hay_sobredispersion:
@@ -281,10 +256,37 @@ if not df.empty:
                                     st.info(f"Promedio (λ): **{lambda_val:.2f} camiones/hora**\nVarianza: **{varianza:.2f}**")
                                     
                                     if hay_sobredispersion:
-                                        st.success("⚠️ **Hay sobredispersión.**\nLa línea verde (Binomial Negativa) modela mejor los grupos de camiones o 'platooning'.")
+                                        st.success("⚠️ **Hay sobredispersión.**\nLa Binomial Negativa modela mejor los grupos de camiones.")
                                         st.json({"n": n, "p": p})
                                     else:
-                                        st.info("✅ **La varianza es baja.**\nLa línea roja (Poisson) es el mejor modelo para este caso.")
+                                        st.info("✅ **La varianza es baja.**\nLa distribución de Poisson es el mejor modelo para este caso.")
+                            
+                            # --- LÓGICA CONTINUA (USANDO KS) ---
+                            else:
+                                f = Fitter(data_clean, distributions=dists_seleccionadas)
+                                f.fit()
+                                
+                                resumen_estadistico = f.summary(Nbest=len(dists_seleccionadas), plot=False)
+                                resumen_ordenado = resumen_estadistico.sort_values(by='ks_statistic', ascending=True)
+                                nombre_ganador = resumen_ordenado.index[0]
+                                mejor_dist = {nombre_ganador: f.fitted_param[nombre_ganador]}
+                                
+                                if variable == "Tiempo Entre Llegadas (Minutos)":
+                                    max_val = int(np.ceil(np.max(data_clean)))
+                                    bins_grafico = np.arange(0, max_val + 2)
+                                else:
+                                    bins_grafico = 'auto'
+                                    
+                                ax.hist(data_clean, bins=bins_grafico, density=True, alpha=0.4, color='gray', edgecolor='black')
+                                f.plot_pdf()
+                                plt.title(f"{variable}\n[Días: {texto_dias_comb}]", fontweight='bold')
+                                st.pyplot(fig)
+                                
+                                with col2:
+                                    st.markdown(f"### 🏆 Distribución Ganadora (KS: {nombre_ganador})")
+                                    st.json(mejor_dist)
+                                    st.markdown("**Ranking Completo (Ordenado por KS):**")
+                                    st.dataframe(resumen_ordenado[['sumsquare_error', 'ks_statistic', 'ks_pvalue']])
                     else:
                         st.warning("No hay suficientes datos.")
 
