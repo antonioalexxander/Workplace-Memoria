@@ -5,9 +5,9 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Callable, Optional
 from scipy.stats import norm, expon, lognorm, weibull_min, gamma
+from heuristica import Romana
 
 # Map 
-
 DIST_MAP = {
     'norm': norm,
     'expon': expon,
@@ -19,6 +19,8 @@ DIST_MAP = {
 days = [
     'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
     ]
+
+density = 0.384 
 
 # ==========================================
 # 1. ENTITIES & DATA STRUCTURES
@@ -64,6 +66,9 @@ class PulpFacilitySimulation:
         self.env = env
         self.strategy_func = strategy_func
 
+        # --- NEW: Iniciar heuristica (Pesos Calibrados) ---
+        self.algorithm = Romana(w1=123.68, w2=3.61, w3=1714.90)
+
         # --- NEW: Upload the inter-arrival time file ---
         with open("arrivalTime.json", "r", encoding="utf-8") as f:
             self.masterArrivalTime = json.load(f)
@@ -71,11 +76,11 @@ class PulpFacilitySimulation:
         self.lines = [ProductionLine(env, i, hopper_capacity=500) for i in range(2)]
         
         self.stock_areas = {}
-        for area_id in range(1, 12):
+        for area_id in range(1, 8):
             self.stock_areas[area_id] = []
             for col_idx in range(5):
                 # Pre-fill area 1 heavily so we survive multi-week simulation starts
-                init_v = 384.6154 if area_id == 1 else 0
+                init_v = 150/density if area_id == 1 else 0
                 init_a = random.uniform(5, 10) if area_id == 1 else 0
                 col = StockColumn(env, f"Area_{area_id}_Col_{col_idx}", capacity=500, init_vol=init_v, init_age=init_a)
                 self.stock_areas[area_id].append(col)
@@ -176,13 +181,16 @@ class PulpFacilitySimulation:
         Discretized continuous flow: Pulls 2.5 tons/minute.
         If hopper is empty, requests a large `batch_size_tons` from stock to last several minutes.
         """
-        tons_per_min = 2.5 
+        tons_per_min = 2.5
+        m3_per_min = tons_per_min / density
+        batch_size_m3 = batch_size_tons / density
+
         predefined_reclaim_area = 1
         
         while True:
             # 1. Batch Pull Logic: If hopper can't sustain the next minute, fetch a batch
-            if line.hopper.container.level < tons_per_min:
-                fetch_amount = min(batch_size_tons, line.hopper.container.capacity - line.hopper.container.level)
+            if line.hopper.container.level < m3_per_min:
+                fetch_amount = min(batch_size_m3, line.hopper.container.capacity - line.hopper.container.level)
                 
                 # Find a column in the active area with enough volume
                 for col in self.stock_areas[predefined_reclaim_area]:
@@ -194,10 +202,10 @@ class PulpFacilitySimulation:
                         break 
             
             # 2. Consumption Logic: Consume 1 minute worth of logs
-            if line.hopper.container.level >= tons_per_min:
+            if line.hopper.container.level >= m3_per_min:
                 age = line.hopper.current_age
-                yield line.hopper.container.get(tons_per_min)
-                self._record_feed(self.env.now, tons_per_min, age)
+                yield line.hopper.container.get(m3_per_min)
+                self._record_feed(self.env.now, m3_per_min, age)
             else:
                 self.starvation_minutes += 1
                 self._day_starvation += 1
@@ -205,15 +213,18 @@ class PulpFacilitySimulation:
             yield self.env.timeout(1) 
 
     def stock_monitoring_process(self):
-        """Takes a snapshot every 60 minutes and increments log age."""
+        """Toma una foto cada 60 minutos, envejece la madera y resetea la Romana."""
         while True:
+            # 1. Envejecer la madera física
+            total_vol, vol_x_age = 0.0, 0.0
             for area_id, cols in self.stock_areas.items():
                 for col in cols:
-                    # AGING LOGIC: Increment age by 1 hour (1/24th of a day) if logs exist
                     if col.container.level > 0:
                         col.current_age += (1.0 / 24.0)
-
-                    # Snapshot
+                        
+                    total_vol += col.container.level
+                    vol_x_age += col.container.level * col.current_age
+                    
                     self.stock_stats.append({
                         'time': self.env.now,
                         'area': area_id,
@@ -221,6 +232,16 @@ class PulpFacilitySimulation:
                         'level': col.container.level,
                         'mean_age': col.current_age
                     })
+                    
+            # 2. Sincronizar con el cerebro Romana
+            ageStorageYard = (vol_x_age / total_vol) if total_vol > 0 else 0.0
+            self.algorithm._CloseHour(
+                activeLines=len(self.lines),
+                remainingCraneVol=500.0,
+                maxCranePerHour=500.0,
+                ageStorageYard=ageStorageYard
+            )
+            
             yield self.env.timeout(60)
 
     def daily_snapshot_process(self):
@@ -255,11 +276,22 @@ class PulpFacilitySimulation:
         mean_stock_age = (vol_x_age / total_vol) if total_vol > 0 else None
 
         # Truck metrics for trucks that arrived during this day
+        # Truck metrics for trucks that arrived during this day
         day_trucks = [t for t in self.truck_stats if day_start_min <= t['arrival_time'] < day_end_min]
         n_total = len(day_trucks)
-        n_direct = sum(1 for t in day_trucks if t['route_taken'] == 'Direct')
-        n_stock = n_total - n_direct
-        mean_wait = (sum(t['time_in_system'] for t in day_trucks) / n_total) if n_total > 0 else None
+        
+        # --- NUEVA LÓGICA: PROMEDIOS POR VOLUMEN ---
+        vol_total = sum(t['volume'] for t in day_trucks)
+        vol_direct = sum(t['volume'] for t in day_trucks if t['route_taken'] == 'Direct')
+        vol_stock = vol_total - vol_direct
+        
+        # Porcentaje de volumen enviado a patio
+        stock_pct_vol = (vol_stock / vol_total) if vol_total > 0 else None
+        
+        # Promedio ponderado del tiempo de espera (según el volumen del camión)
+        # Un camión más grande impacta más en la métrica que uno pequeño
+        wait_x_vol = sum(t['time_in_system'] * t['volume'] for t in day_trucks)
+        mean_wait_weighted = (wait_x_vol / vol_total) if vol_total > 0 else None
 
         self.daily_stats.append({
             'day': day,
@@ -268,10 +300,10 @@ class PulpFacilitySimulation:
             'total_stock_vol': round(total_vol, 1),
             'starvation_min': self._day_starvation,
             'trucks_total': n_total,
-            'trucks_direct': n_direct,
-            'trucks_stock': n_stock,
-            'stock_pct': round(n_stock / n_total, 3) if n_total > 0 else None,
-            'mean_truck_wait_min': round(mean_wait, 1) if mean_wait is not None else None,
+            'vol_direct': round(vol_direct, 1), # <-- Cambiado para mostrar M3
+            'vol_stock': round(vol_stock, 1),   # <-- Cambiado para mostrar M3
+            'stock_pct': round(stock_pct_vol, 3) if stock_pct_vol is not None else None, # <-- Usa el % por volumen
+            'mean_truck_wait_min': round(mean_wait_weighted, 1) if mean_wait_weighted is not None else None, # <-- Usa el tiempo ponderado
         })
 
     # --- METRIC RECORDERS ---
@@ -317,6 +349,56 @@ def priority_direct_strategy(truck: Truck, sim: PulpFacilitySimulation):
         truck.route_taken = 'Direct'
         truck.target_obj = sim.lines[0]
 
+def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
+    # 1. Recopilar datos en tiempo real del patio para alimentar a Romana
+    total_vol = 0.0
+    vol_x_age = 0.0
+    for cols in sim.stock_areas.values():
+        for col in cols:
+            total_vol += col.container.level
+            vol_x_age += col.container.level * col.current_age
+    
+    ageStorageYard = (vol_x_age / total_vol) if total_vol > 0 else 0.0
+    active_lines = len(sim.lines)
+    
+    # Variables de grúa (ajusta estos límites según la capacidad real de tus grúas)
+    maxCranePerHour = 500.0
+    remainingCraneVol = 500.0 
+    
+    # 2. Consultar al "Cerebro" (Romana)
+    decision, pen1, pen2, pen3 = sim.algorithm._EvaluateTruck(
+        id=truck.truck_id,
+        volTruck=truck.volume,
+        ageTruck=truck.mean_age,
+        activeLines=active_lines,
+        unloadingSy='Descarga',
+        remainingCraneVol=remainingCraneVol,
+        maxCranePerHour=maxCranePerHour,
+        ageStorageYard=ageStorageYard
+    )
+    
+    # 3. Ejecutar la decisión física en el simulador SimPy
+    if 'Picado Directo' in decision:
+        truck.route_taken = 'Direct'
+        # Buscar la línea que tenga más espacio en su tolva
+        best_line = min(sim.lines, key=lambda l: l.hopper.container.level)
+        truck.target_obj = best_line
+    else:
+        truck.route_taken = 'Stock'
+        # Buscar columnas disponibles en el patio
+        available_cols = []
+        for area_id in range(2, 12):
+            for col in sim.stock_areas[area_id]:
+                if col.container.level + truck.volume <= col.container.capacity:
+                    available_cols.append(col)
+                    
+        if available_cols:
+            truck.target_obj = random.choice(available_cols)
+        else:
+            # Emergencia: Si el patio está 100% lleno, forzar a la línea
+            truck.route_taken = 'Direct'
+            truck.target_obj = sim.lines[0]        
+
 # ==========================================
 # 4. EXECUTION BLOCK
 # ==========================================
@@ -327,7 +409,7 @@ if __name__ == "__main__":
 
     print(f"Initializing {SIM_DAYS}-Day Simulation...")
     env = simpy.Environment()
-    facility = PulpFacilitySimulation(env, strategy_func=priority_direct_strategy)
+    facility = PulpFacilitySimulation(env, strategy_func=algorithm_strategy)
     facility.run()
     env.run(until=SIMULATION_TIME)
 
@@ -359,12 +441,23 @@ if __name__ == "__main__":
     print(df_daily.to_string(index=False))
 
     # ── [2] Routing split ─────────────────────────────────────────────────────
-    print("\n[2] TRUCK ROUTING (overall)")
-    rc = df_trucks['route_taken'].value_counts()
-    n = len(df_trucks)
-    print(f"  Total trucks  : {n}")
-    print(f"  Direct        : {rc.get('Direct', 0)}  ({rc.get('Direct', 0)/n*100:.1f}%)")
-    print(f"  Stock         : {rc.get('Stock',  0)}  ({rc.get('Stock',  0)/n*100:.1f}%)")
+    print("\n[2] TRUCK ROUTING (overall by volume)")
+    n_trucks = len(df_trucks)
+    
+    if n_trucks > 0:
+        # Sumar el volumen agrupado por ruta
+        vol_by_route = df_trucks.groupby('route_taken')['volume'].sum()
+        
+        total_vol = df_trucks['volume'].sum()
+        vol_direct = vol_by_route.get('Direct', 0.0)
+        vol_stock = vol_by_route.get('Stock', 0.0)
+        
+        print(f"  Total trucks      : {n_trucks}")
+        print(f"  Total Volume (m3) : {total_vol:.1f}")
+        print(f"  Direct            : {vol_direct:.1f} m3  ({(vol_direct/total_vol)*100:.1f}%)")
+        print(f"  Stock             : {vol_stock:.1f} m3  ({(vol_stock/total_vol)*100:.1f}%)")
+    else:
+        print("  No trucks processed.")
 
     # ── [3] Starvation ────────────────────────────────────────────────────────
     print("\n[3] STARVATION (per production line, combined)")
@@ -383,6 +476,6 @@ if __name__ == "__main__":
     print(df_daily[['day', 'total_stock_vol', 'mean_stock_age_days']].to_string(index=False))
 
     # ── [6] Truck wait times ──────────────────────────────────────────────────
-    print("\n[6] TRUCK WAIT TIMES (daily mean, minutes)")
-    print(df_daily[['day', 'trucks_total', 'trucks_direct', 'trucks_stock',
+    print("\n[6] TRUCK WAIT TIMES (daily mean weighted, minutes)")
+    print(df_daily[['day', 'trucks_total', 'vol_direct', 'vol_stock',
                     'stock_pct', 'mean_truck_wait_min']].to_string(index=False))
