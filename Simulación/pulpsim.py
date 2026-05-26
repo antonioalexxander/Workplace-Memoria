@@ -73,16 +73,34 @@ class PulpFacilitySimulation:
         with open("arrivalTime.json", "r", encoding="utf-8") as f:
             self.masterArrivalTime = json.load(f)
         
+        # --- NUEVO: Cargar configuración realista del patio ---
+        with open("yardConfig.json", "r", encoding="utf-8") as f:
+            self.yard_config = json.load(f)
+        
         self.lines = [ProductionLine(env, i, hopper_capacity=500) for i in range(2)]
         
+        # --- NUEVO: Construcción dinámica desde el JSON ---
         self.stock_areas = {}
-        for area_id in range(1, 8):
+        self.crane_times = {} # <-- NUEVO DICCIONARIO
+        
+        for area in self.yard_config["areas"]:
+            area_id = area["area_id"]
             self.stock_areas[area_id] = []
-            for col_idx in range(5):
-                # Pre-fill area 1 heavily so we survive multi-week simulation starts
-                init_v = 150/density if area_id == 1 else 0
-                init_a = random.uniform(5, 10) if area_id == 1 else 0
-                col = StockColumn(env, f"Area_{area_id}_Col_{col_idx}", capacity=500, init_vol=init_v, init_age=init_a)
+            
+            # Guardamos el tiempo de viaje de la grúa para esta área específica
+            self.crane_times[area_id] = area.get("crane_time_min", 5)
+            
+            for col_idx in range(area["columns"]):
+                init_v = area["init_vol"]
+                init_a = random.uniform(5, 10) if area["pre_fill"] else 0.0
+                
+                col = StockColumn(
+                    env, 
+                    f"Area_{area_id}_Col_{col_idx}", 
+                    capacity=area["capacity"], 
+                    init_vol=init_v, 
+                    init_age=init_a
+                )
                 self.stock_areas[area_id].append(col)
                 
         self.truck_stats = []
@@ -159,7 +177,7 @@ class PulpFacilitySimulation:
             self.env.process(self.truck_lifecycle(truck))
 
     def truck_lifecycle(self, truck: Truck):
-        unload_time = 10.0 
+        unload_time = random.uniform(5.0, 6.0)
         
         if truck.route_taken == 'Direct':
             line: ProductionLine = truck.target_obj
@@ -170,6 +188,7 @@ class PulpFacilitySimulation:
                 
         elif truck.route_taken == 'Stock':
             col: StockColumn = truck.target_obj
+            # Asume que descargar en el patio demora 5 minutos extra por el viaje interno
             yield self.env.timeout(unload_time + 5.0) 
             yield col.put(truck.volume, truck.mean_age)
 
@@ -177,31 +196,45 @@ class PulpFacilitySimulation:
         self._record_truck(truck)
 
     def line_feeding_process(self, line: ProductionLine, batch_size_tons: float = 75.0):
-        """
-        Discretized continuous flow: Pulls 2.5 tons/minute.
-        If hopper is empty, requests a large `batch_size_tons` from stock to last several minutes.
-        """
         tons_per_min = 2.5
         m3_per_min = tons_per_min / density
         batch_size_m3 = batch_size_tons / density
-
-        predefined_reclaim_area = 1
         
         while True:
-            # 1. Batch Pull Logic: If hopper can't sustain the next minute, fetch a batch
+            # 1. Batch Pull Logic: Si la tolva necesita recarga, la grúa va a la cancha
             if line.hopper.container.level < m3_per_min:
                 fetch_amount = min(batch_size_m3, line.hopper.container.capacity - line.hopper.container.level)
                 
-                # Find a column in the active area with enough volume
-                for col in self.stock_areas[predefined_reclaim_area]:
-                    if col.container.level >= fetch_amount:
-                        pulled_age = col.current_age
-                        yield col.container.get(fetch_amount)
-                        # Add batch to the hopper
-                        yield line.hopper.put(fetch_amount, pulled_age)
-                        break 
+                lote_conseguido = False
+                
+                for area_id in sorted(self.stock_areas.keys()):
+                    for col in self.stock_areas[area_id]:
+                        if col.container.level >= fetch_amount:
+                            
+                            travel_time = self.crane_times[area_id]
+                            
+                            # --- NUEVO: La máquina sigue operando mientras la grúa viaja ---
+                            for _ in range(travel_time):
+                                if line.hopper.container.level >= m3_per_min:
+                                    age = line.hopper.current_age
+                                    yield line.hopper.container.get(m3_per_min)
+                                    self._record_feed(self.env.now, m3_per_min, age)
+                                else:
+                                    # La máquina colapsó esperando que la grúa volviera
+                                    self.starvation_minutes += 1
+                                    self._day_starvation += 1
+                                yield self.env.timeout(1) # Pasa 1 minuto de viaje
+                            
+                            # --- Llega la grúa de vuelta con la madera ---
+                            pulled_age = col.current_age
+                            yield col.container.get(fetch_amount)
+                            yield line.hopper.put(fetch_amount, pulled_age)
+                            lote_conseguido = True
+                            break 
+                    if lote_conseguido:
+                        break
             
-            # 2. Consumption Logic: Consume 1 minute worth of logs
+            # 2. Consumption Logic: Consumo normal de 1 minuto cuando la grúa está inactiva
             if line.hopper.container.level >= m3_per_min:
                 age = line.hopper.current_age
                 yield line.hopper.container.get(m3_per_min)
@@ -210,7 +243,7 @@ class PulpFacilitySimulation:
                 self.starvation_minutes += 1
                 self._day_starvation += 1
                 
-            yield self.env.timeout(1) 
+            yield self.env.timeout(1)
 
     def stock_monitoring_process(self):
         """Toma una foto cada 60 minutos, envejece la madera y resetea la Romana."""
@@ -387,7 +420,9 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
         truck.route_taken = 'Stock'
         # Buscar columnas disponibles en el patio
         available_cols = []
-        for area_id in range(2, 12):
+
+        # --- NUEVO: Leer los IDs de las canchas directamente desde el JSON ---
+        for area_id in sim.stock_areas.keys():
             for col in sim.stock_areas[area_id]:
                 if col.container.level + truck.volume <= col.container.capacity:
                     available_cols.append(col)
@@ -395,9 +430,10 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
         if available_cols:
             truck.target_obj = random.choice(available_cols)
         else:
-            # Emergencia: Si el patio está 100% lleno, forzar a la línea
+            # Emergencia: Mandar a la línea con menos fila/espacio disponible
             truck.route_taken = 'Direct'
-            truck.target_obj = sim.lines[0]        
+            best_line = min(sim.lines, key=lambda l: len(l.resource.queue) + l.hopper.container.level)
+            truck.target_obj = best_line     
 
 # ==========================================
 # 4. EXECUTION BLOCK
