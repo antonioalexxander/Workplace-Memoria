@@ -1,11 +1,11 @@
 {
   "areas": [
-    { "area_id": 2, "name": "Cancha 2", "columns": 15, "capacity": 1000, "init_vol": 745, "pre_fill": true, "crane_time_min": 15 },
-    { "area_id": 3, "name": "Cancha 3", "columns": 15, "capacity": 1500, "init_vol": 930, "pre_fill": true, "crane_time_min": 15 },
-    { "area_id": 4, "name": "Cancha 4", "columns": 50, "capacity": 1500, "init_vol": 948, "pre_fill": true, "crane_time_min": 10 },
-    { "area_id": 5, "name": "Cancha 5", "columns": 25, "capacity": 3000, "init_vol": 1984, "pre_fill": true, "crane_time_min": 4 },
-    { "area_id": 9, "name": "Cancha 9", "columns": 12, "capacity": 1200, "init_vol": 809, "pre_fill": true, "crane_time_min": 12 },
-    { "area_id": 10, "name": "Cancha 10", "columns": 20, "capacity": 1500, "init_vol": 0, "pre_fill": false, "crane_time_min": 5 },
-    { "area_id": 11, "name": "Cancha 11", "columns": 20, "capacity": 1500, "init_vol": 0, "pre_fill": false, "crane_time_min": 5 }
+    { "area_id": 2, "name": "Cancha 2", "columns": 15, "capacity": 1000, "init_vol": 745, "pre_fill": true, "crane_time_min": 10, "init_age_days": 241.2 },
+    { "area_id": 3, "name": "Cancha 3", "columns": 15, "capacity": 1500, "init_vol": 930, "pre_fill": true, "crane_time_min": 10, "init_age_days": 312.2 },
+    { "area_id": 4, "name": "Cancha 4", "columns": 50, "capacity": 1500, "init_vol": 948, "pre_fill": true, "crane_time_min": 6, "init_age_days": 212.8 },
+    { "area_id": 5, "name": "Cancha 5", "columns": 25, "capacity": 3000, "init_vol": 1984, "pre_fill": true, "crane_time_min": 3, "init_age_days": 210.9 },
+    { "area_id": 9, "name": "Cancha 9", "columns": 12, "capacity": 1200, "init_vol": 809, "pre_fill": true, "crane_time_min": 9, "init_age_days": 239.3 },
+    { "area_id": 10, "name": "Cancha 10", "columns": 20, "capacity": 1500, "init_vol": 0, "pre_fill": false, "crane_time_min": 4, "init_age_days": 0.0 },
+    { "area_id": 11, "name": "Cancha 11", "columns": 20, "capacity": 1500, "init_vol": 0, "pre_fill": false, "crane_time_min": 4, "init_age_days": 0.0 }
   ]
 }

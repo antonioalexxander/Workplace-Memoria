@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 from scipy.stats import norm, expon, lognorm, weibull_min, gamma
 from heuristica import Romana
+import statistics
 
 # Map 
 DIST_MAP = {
@@ -62,99 +63,58 @@ class ProductionLine:
 # ==========================================
 
 class PulpFacilitySimulation:
-    def __init__(self, env: simpy.Environment, strategy_func: Callable):
+    def __init__(self, env: simpy.Environment, w1, w2, w3, w4, strategy_func): # <-- Recibe los pesos de Optuna
         self.env = env
         self.strategy_func = strategy_func
+        # Iniciar heurística con los pesos que Optuna proponga
+        self.algorithm = Romana(w1=w1, w2=w2, w3=w3, w4=w4)
 
-        # --- NEW: Iniciar heuristica (Pesos Calibrados) ---
-        self.algorithm = Romana(w1=3528, w2=1, w3=2269, w4=143)
-
-        # --- NEW: Upload the inter-arrival time file ---
+        # Cargar archivos (Asegúrate de que existan en la carpeta)
         with open("arrivalTime.json", "r", encoding="utf-8") as f:
             self.masterArrivalTime = json.load(f)
         
-        # --- NUEVO: Cargar configuración realista del patio ---
         with open("yardConfig.json", "r", encoding="utf-8") as f:
             self.yard_config = json.load(f)
         
         self.lines = [ProductionLine(env, i, hopper_capacity=500) for i in range(2)]
         
-        # --- CANCHAS COMPLETAS: Construcción dinámica desde el JSON ---
-        # self.stock_areas = {}
-        # self.crane_times = {} # <-- NUEVO DICCIONARIO
-        
-        # for area in self.yard_config["areas"]:
-        #     area_id = area["area_id"]
-        #     self.stock_areas[area_id] = []
-            
-        #     # Guardamos el tiempo de viaje de la grúa para esta área específica
-        #     self.crane_times[area_id] = area.get("crane_time_min", 5)
-            
-        #     for col_idx in range(area["columns"]):
-        #         init_v = area["init_vol"]
-        #         init_a = random.uniform(5, 10) if area["pre_fill"] else 0.0
-                
-        #         col = StockColumn(
-        #             env, 
-        #             f"Area_{area_id}_Col_{col_idx}", 
-        #             capacity=area["capacity"], 
-        #             init_vol=init_v, 
-        #             init_age=init_a
-        #         )
-        #         self.stock_areas[area_id].append(col)
-
-        # --- CANCHAS CON PROBABILIDAD DE QUE ESTEN LLENAS EN UN COMIENZO CON DATOS HISTORICOS: Construcción dinámica desde el JSON ---
+        # Construcción de canchas con holgura (30% probabilidad vacío)
         self.stock_areas = {}
         self.crane_times = {} 
-        
         for area in self.yard_config["areas"]:
             area_id = area["area_id"]
             self.stock_areas[area_id] = []
-            
             self.crane_times[area_id] = area.get("crane_time_min", 5)
-            
             for col_idx in range(area["columns"]):
-                # --- NUEVA LÓGICA DE LLENADO REALISTA ---
                 if area["pre_fill"]:
-                    # 30% de probabilidad de que esta columna esté completamente vacía (Holgura)
                     if random.random() < 0.30:
-                        init_v = 0.0
-                        init_a = 0.0
+                        init_v = 0.0; init_a = 0.0
                     else:
-                        # Si tiene madera, varía aleatoriamente entre la mitad y un poco más del promedio histórico
                         init_v = random.uniform(area["init_vol"] * 0.5, min(area["capacity"], area["init_vol"] * 1.2))
                         
-                        # --- SOLUCIÓN AL BUG: Leer la edad real histórica del JSON ---
+                        # --- NUEVO: Leer la edad real histórica del JSON ---
                         base_age = area.get("init_age_days", 105.0)
                         
                         # Variamos la edad +/- 15% para dar realismo a las distintas pilas 
                         init_a = random.uniform(base_age * 0.85, base_age * 1.15)
                 else:
-                    init_v = 0.0
-                    init_a = 0.0
+                    init_v = 0.0; init_a = 0.0
                 
-                col = StockColumn(
-                    env, 
-                    f"Area_{area_id}_Col_{col_idx}", 
-                    capacity=area["capacity"], 
-                    init_vol=init_v, 
-                    init_age=init_a
-                )
+                col = StockColumn(env, f"Area_{area_id}_Col_{col_idx}", capacity=area["capacity"], init_vol=init_v, init_age=init_a)
                 self.stock_areas[area_id].append(col)
                 
         self.truck_stats = []
-        self.stock_stats = []
+        self.stock_stats = []    
         self.hourly_feed = {}
         self.starvation_minutes = 0
-        self._day_starvation = 0
-        self.daily_stats = []
+        self._day_starvation = 0  
+        self.daily_stats = []     
 
     def run(self):
         self.env.process(self.truck_arrival_process())
         self.env.process(self.stock_monitoring_process())
         for line in self.lines:
             self.env.process(self.line_feeding_process(line))
-        self.env.process(self.daily_snapshot_process())
 
     # --- GENERATORS ---
 
@@ -316,7 +276,7 @@ class PulpFacilitySimulation:
                 maxCranePerHour=500.0,
                 ageStorageYard=ageStorageYard_days / 30.4167 # <--- EN MESES
             )
-
+            
             yield self.env.timeout(60)
 
     def daily_snapshot_process(self):
@@ -389,7 +349,8 @@ class PulpFacilitySimulation:
             'arrival_time': truck.arrival_time,
             'time_in_system': truck.departure_time - truck.arrival_time,
             'volume': truck.volume,
-            'route_taken': truck.route_taken
+            'route_taken': truck.route_taken,
+            'mean_age': truck.mean_age
         })
 
     def _record_feed(self, current_time: float, volume: float, age: float):
@@ -398,6 +359,48 @@ class PulpFacilitySimulation:
             self.hourly_feed[hour] = {'total_vol': 0.0, 'vol_x_age': 0.0}
         self.hourly_feed[hour]['total_vol'] += volume
         self.hourly_feed[hour]['vol_x_age'] += (volume * age)
+
+    def get_metrics(self):
+        # 1 a 6 (Se mantienen exactamente igual)
+        vol_total = sum(t['volume'] for t in self.truck_stats)
+        vol_direct = sum(t['volume'] for t in self.truck_stats if t['route_taken'] == 'Direct')
+        ratio_picado = (vol_direct / vol_total) if vol_total > 0 else 0
+        
+        total_vol_fed, total_age_fed = 0.0, 0.0
+        for h_data in self.hourly_feed.values():
+            total_vol_fed += h_data['total_vol']
+            total_age_fed += h_data['vol_x_age']
+        mean_feed_age_days = (total_age_fed / total_vol_fed) if total_vol_fed > 0 else 0
+        
+        total_wait = sum(t['time_in_system'] for t in self.truck_stats)
+        mean_truck_wait_min = (total_wait / len(self.truck_stats)) if self.truck_stats else 0
+        
+        starvation_min = self.starvation_minutes
+        
+        vol_stock, age_vol_stock = 0.0, 0.0
+        for t in self.truck_stats:
+            if t['route_taken'] == 'Stock':
+                vol_stock += t['volume']
+                age_vol_stock += (t['volume'] * t['mean_age'])
+        mean_stock_routing_age_days = (age_vol_stock / vol_stock) if vol_stock > 0 else 0.0
+        
+        total_vol_yard, age_vol_yard = 0.0, 0.0
+        for cols in self.stock_areas.values():
+            for col in cols:
+                if col.container.level > 0:
+                    total_vol_yard += col.container.level
+                    age_vol_yard += (col.container.level * col.current_age)
+        final_yard_age_days = (age_vol_yard / total_vol_yard) if total_vol_yard > 0 else 0.0
+        
+        # --- 7. NUEVO: DESVIACIÓN ESTÁNDAR DIARIA ---
+        edades_diarias = [d['mean_feed_age_days'] / 30.4167 for d in self.daily_stats if d['mean_feed_age_days'] is not None]
+        if len(edades_diarias) > 1:
+            std_feed_age_months = statistics.stdev(edades_diarias)
+        else:
+            std_feed_age_months = 0.0
+            
+        # Retornamos los 7
+        return ratio_picado, mean_feed_age_days, mean_truck_wait_min, starvation_min, mean_stock_routing_age_days, final_yard_age_days, std_feed_age_months
 
 
 # ==========================================
@@ -446,12 +449,12 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
     decision, pen1, pen2, pen3 = sim.algorithm._EvaluateTruck(
         id=truck.truck_id,
         volTruck=truck.volume,
-        ageTruck=ageTruck_months,             
+        ageTruck=ageTruck_months,             # <--- EN MESES
         activeLines=active_lines,
         unloadingSy='Descarga',
         remainingCraneVol=remainingCraneVol,
         maxCranePerHour=maxCranePerHour,
-        ageStorageYard=ageStorageYard_months  
+        ageStorageYard=ageStorageYard_months  # <--- EN MESES
     )
     
     # 3. Ejecutar la decisión física en el simulador SimPy
@@ -488,8 +491,23 @@ if __name__ == "__main__":
     SIMULATION_TIME = SIM_DAYS * 24 * 60
 
     print(f"Initializing {SIM_DAYS}-Day Simulation...")
+
     env = simpy.Environment()
-    facility = PulpFacilitySimulation(env, strategy_func=algorithm_strategy)
+    # --- CORRECCIÓN: Agregamos pesos de prueba para ejecución manual ---
+    # Aquí puedes pegar los mejores pesos que te arroje Optuna al final de su búsqueda
+    test_w1 = 3528 
+    test_w2 = 1
+    test_w3 = 2269
+    test_w4 = 143
+    
+    facility = PulpFacilitySimulation(
+        env, 
+        w1=test_w1, 
+        w2=test_w2, 
+        w3=test_w3, 
+        w4=test_w4,
+        strategy_func=algorithm_strategy
+    )
     facility.run()
     env.run(until=SIMULATION_TIME)
 

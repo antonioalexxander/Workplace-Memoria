@@ -1,8 +1,9 @@
 class Romana:
-    def __init__(self, w1, w2, w3, stateSy=None):
+    def __init__(self, w1, w2, w3, w4, stateSy=None):
         self.W1 = w1 # Peso Edad Objetivo
         self.W2 = w2 # Peso Antiguedad de la Cancha
         self.W3 = w3 # Peso Porcentaje
+        self.W4 = w4
 
         self.objectiveAge = 3.5  #Meses
         self.densityWood = 0.39
@@ -121,8 +122,14 @@ class Romana:
         pen3A = abs(ratioA - self.objectiveLinePercent) / maxRatio
         pen3B = abs(ratioB - self.objectiveLinePercent) / maxRatio
 
-        # Costos Finales Multiplicados por tus W
-        costA = (self.W1 * pen1A) + (self.W3 * pen3A)
+        # P4 Cuadrático: Castiga la decisión de Picado Directo si la cancha está muy vieja
+        # Si la cancha tiene menos de 4 meses, no pasa nada. Si se acerca a 6, el castigo explota.
+        pen4A = 0.0
+        if ageStorageYard > 4.0:
+            pen4A = ((ageStorageYard - 4.0) / 2.0) ** 2 
+
+        # Agregamos esta penalización al Costo A (Picado Directo) usando el peso W2 (o un nuevo W4)
+        costA = (self.W1 * pen1A) + (self.W3 * pen3A) + (self.W4 * pen4A)
         costB = (self.W1 * pen1B) + (self.W2 * pen2B) + (self.W3 * pen3B)
 
         # DECISIÓN
