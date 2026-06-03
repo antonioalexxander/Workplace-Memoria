@@ -49,17 +49,18 @@ def objective(trial):
         multa_envio_cancha = (mean_stock_routing_age_months - limite_edad_enviada) * 10000
         
     # --- MULTA 2: COSTO DE OBSOLESCENCIA DEL PATIO ---
-    limite_edad_patio = 6.0 
+    # ¡EL HUMANO LOGRÓ 3.32! Así que bajamos la meta de la IA de 6.0 a 4.0 meses.
+    limite_edad_patio = 4.0 
     multa_patio_estancado = 0.0
     if final_yard_age_months > limite_edad_patio:
-        multa_patio_estancado = (final_yard_age_months - limite_edad_patio) * 50000
+        # Castigo nuclear si no limpia el patio
+        multa_patio_estancado = (final_yard_age_months - limite_edad_patio) * 500000 
 
     # --- NUEVA MULTA: INESTABILIDAD DIARIA ---
-    # Toleramos un desvío estándar de 0.3 meses (~9 días)
+    # ¡EL HUMANO LOGRÓ 0.79 (aunque es un asco, es su marca)! Exijamos a la IA ser un reloj suizo.
     limite_desviacion = 0.30 
     multa_inestabilidad = 0.0
     if std_feed_age_months > limite_desviacion:
-        # Castigo gigante para obligar a estabilizar el consumo diario
         multa_inestabilidad = (std_feed_age_months - limite_desviacion) * 500000
 
     # --- LÍMITES FÍSICOS (Damos un poco más de aire) ---
@@ -88,21 +89,28 @@ def objective(trial):
     return fitness_total
 
 if __name__ == '__main__':
+    # 1. CAMBIAMOS A V9 PARA EMPEZAR FRESCOS CON LA NUEVA REGLA
     study = optuna.create_study(
-        study_name="calibracion_dinamica_simpy_v8", # <-- v6 para probar esta nueva política
+        study_name="calibracion_dinamica_simpy_v11", 
         storage="sqlite:///calibracion_romana_dinamica.db", 
         load_if_exists=True, 
         direction="minimize" 
     )
     
-    print("🚀 INICIANDO BÚSQUEDA DINÁMICA CON COSTO DE OBSOLESCENCIA (>6 MESES)...")
-    study.optimize(objective, n_trials=1000) 
+    print("🚀 INICIANDO BÚSQUEDA V9 CON PENALIZACIÓN DE VARIANZA DIARIA...")
+    
+    # 2. REDUCIMOS A 250 TRIALS PARA AHORRAR TIEMPO (y puedes usar varias terminales)
+    study.optimize(objective, n_trials=2500) 
     
     mejor_prueba = study.best_trial
     
-    print(f"\n--- MEJOR SOLUCIÓN ENCONTRADA ---")
+    print(f"\n--- MEJOR SOLUCIÓN ENCONTRADA (V10) ---")
     print(f"Pesos  -> W1: {mejor_prueba.params['w1']:.2f} | W2: {mejor_prueba.params['w2']:.2f} | W3: {mejor_prueba.params['w3']:.2f} | W4: {mejor_prueba.params['w4']:.2f}")
     print(f"🌲 Edad Mezcla Línea       : {mejor_prueba.user_attrs['Edad_Linea_Meses']:.2f} meses")
+    
+    # 3. AGREGAMOS EL PRINT DE LA VARIANZA
+    print(f"📈 Inestabilidad (Varianza): {mejor_prueba.user_attrs['Varianza_Diaria']:.2f} meses")
+    
     print(f"🏭 Edad Final del Patio    : {mejor_prueba.user_attrs['Edad_Final_Patio_Meses']:.2f} meses")
     print(f"⚖️ Ratio Picado Directo    : {(mejor_prueba.user_attrs['Ratio_Picado']*100):.1f}%")
     print(f"🚛 Espera Promedio Portería: {mejor_prueba.user_attrs['Espera_Promedio_Min']:.1f} minutos")

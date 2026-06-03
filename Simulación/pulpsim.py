@@ -5,7 +5,10 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Callable, Optional
 from scipy.stats import norm, expon, lognorm, weibull_min, gamma
+import statistics
+import math
 from heuristica import Romana
+from operador import OperadorHumano
 
 # Map 
 DIST_MAP = {
@@ -62,83 +65,64 @@ class ProductionLine:
 # ==========================================
 
 class PulpFacilitySimulation:
-    def __init__(self, env: simpy.Environment, strategy_func: Callable):
+    def __init__(self, env: simpy.Environment, strategy_func: Callable,
+                 arrival_multiplier: float = 1.0,         # Escenario 1: Congestión
+                 age_crisis: bool = False,                # Escenario 2: Madera polarizada
+                 line_demand_tons_min: float = 2.5,       # Escenario 3: Caída de demanda
+                 override_init_age_days: float = None,    # Escenario 4: Cancha vieja
+                 unload_delay_multiplier: float = 1.0):   # Escenario 5: Demora en descarga
+        
         self.env = env
         self.strategy_func = strategy_func
 
-        # --- NEW: Iniciar heuristica (Pesos Calibrados) ---
-        self.algorithm = Romana(w1=3528, w2=1, w3=2269, w4=143)
+        # --- GUARDAR PARÁMETROS DE ESTRÉS ---
+        self.arrival_multiplier = arrival_multiplier
+        self.age_crisis = age_crisis
+        self.line_demand_tons_min = line_demand_tons_min
+        self.override_init_age_days = override_init_age_days
+        self.unload_delay_multiplier = unload_delay_multiplier
 
-        # --- NEW: Upload the inter-arrival time file ---
+        # --- ACTIVAR ALGORITMO ---
+        self.algorithm = OperadorHumano() # Cambiar según corresponda
+
         with open("arrivalTime.json", "r", encoding="utf-8") as f:
             self.masterArrivalTime = json.load(f)
         
-        # --- NUEVO: Cargar configuración realista del patio ---
         with open("yardConfig.json", "r", encoding="utf-8") as f:
             self.yard_config = json.load(f)
         
         self.lines = [ProductionLine(env, i, hopper_capacity=500) for i in range(2)]
         
-        # --- CANCHAS COMPLETAS: Construcción dinámica desde el JSON ---
-        # self.stock_areas = {}
-        # self.crane_times = {} # <-- NUEVO DICCIONARIO
-        
-        # for area in self.yard_config["areas"]:
-        #     area_id = area["area_id"]
-        #     self.stock_areas[area_id] = []
-            
-        #     # Guardamos el tiempo de viaje de la grúa para esta área específica
-        #     self.crane_times[area_id] = area.get("crane_time_min", 5)
-            
-        #     for col_idx in range(area["columns"]):
-        #         init_v = area["init_vol"]
-        #         init_a = random.uniform(5, 10) if area["pre_fill"] else 0.0
-                
-        #         col = StockColumn(
-        #             env, 
-        #             f"Area_{area_id}_Col_{col_idx}", 
-        #             capacity=area["capacity"], 
-        #             init_vol=init_v, 
-        #             init_age=init_a
-        #         )
-        #         self.stock_areas[area_id].append(col)
-
-        # --- CANCHAS CON PROBABILIDAD DE QUE ESTEN LLENAS EN UN COMIENZO CON DATOS HISTORICOS: Construcción dinámica desde el JSON ---
         self.stock_areas = {}
         self.crane_times = {} 
         
         for area in self.yard_config["areas"]:
             area_id = area["area_id"]
             self.stock_areas[area_id] = []
-            
             self.crane_times[area_id] = area.get("crane_time_min", 5)
             
             for col_idx in range(area["columns"]):
-                # --- NUEVA LÓGICA DE LLENADO REALISTA ---
                 if area["pre_fill"]:
-                    # 30% de probabilidad de que esta columna esté completamente vacía (Holgura)
                     if random.random() < 0.30:
                         init_v = 0.0
                         init_a = 0.0
                     else:
-                        # Si tiene madera, varía aleatoriamente entre la mitad y un poco más del promedio histórico
                         init_v = random.uniform(area["init_vol"] * 0.5, min(area["capacity"], area["init_vol"] * 1.2))
                         
-                        # --- SOLUCIÓN AL BUG: Leer la edad real histórica del JSON ---
-                        base_age = area.get("init_age_days", 105.0)
-                        
-                        # Variamos la edad +/- 15% para dar realismo a las distintas pilas 
+                        # APLICACIÓN ESCENARIO 4: Forzar edad inicial si existe el parámetro
+                        if self.override_init_age_days is not None:
+                            base_age = self.override_init_age_days
+                        else:
+                            base_age = area.get("init_age_days", 105.0)
+                            
                         init_a = random.uniform(base_age * 0.85, base_age * 1.15)
                 else:
                     init_v = 0.0
                     init_a = 0.0
                 
                 col = StockColumn(
-                    env, 
-                    f"Area_{area_id}_Col_{col_idx}", 
-                    capacity=area["capacity"], 
-                    init_vol=init_v, 
-                    init_age=init_a
+                    env, f"Area_{area_id}_Col_{col_idx}", 
+                    capacity=area["capacity"], init_vol=init_v, init_age=init_a
                 )
                 self.stock_areas[area_id].append(col)
                 
@@ -183,41 +167,35 @@ class PulpFacilitySimulation:
                 params = configBlock[nameDist]
 
                 if nameDist in DIST_MAP:
-                    # A random value is generated
                     randomValue = DIST_MAP[nameDist].rvs(**params)
-                    # Avoid negative or extremely small numbers
-                    # It was taking me way too long, and I wasn't getting anything done. Set a time limit of 240 minutes.
                     arrivalInterTime = max(0.5, min(randomValue, 240.0)) 
 
-            # simulator queue
+            # APLICACIÓN ESCENARIO 1: Modificador de llegadas (ej: 0.5 = llegan el doble de rápido)
+            arrivalInterTime = arrivalInterTime * self.arrival_multiplier
+
             yield self.env.timeout(arrivalInterTime)
 
-            # The truck is created
             truck_id += 1
 
-
-            paramsVol = {
-                "s" : 0.11044,
-                "loc" : -4.97973,
-                "scale" : 34.28130
-            }
+            paramsVol = {"s" : 0.11044, "loc" : -4.97973, "scale" : 34.28130}
             vol = lognorm.rvs(**paramsVol)
 
-            paramsAge = {
-                "s" : 1.40205,
-                "loc" : -0.03016,
-                "scale" : 0.88713
-            }
-            age_months = lognorm.rvs(**paramsAge)
+            # APLICACIÓN ESCENARIO 2: Madera en crisis
+            if self.age_crisis:
+                # 50% probabilidad de que sea madera muy fresca (1 mes), 50% que sea muy vieja (8 meses)
+                age_months = random.choice([random.uniform(0.5, 1.5), random.uniform(7.0, 9.0)])
+            else:
+                paramsAge = {"s" : 1.40205, "loc" : -0.03016, "scale" : 0.88713}
+                age_months = lognorm.rvs(**paramsAge)
 
-            # --- CORRECCIÓN: Guardamos en SimPy como DÍAS ---
             truck = Truck(truck_id=truck_id, arrival_time=self.env.now, volume=vol, mean_age=age_months * 30.4167)
             
             self.strategy_func(truck, self)
             self.env.process(self.truck_lifecycle(truck))
 
     def truck_lifecycle(self, truck: Truck):
-        unload_time = random.uniform(5.0, 6.0)
+        # APLICACIÓN ESCENARIO 5: Modificador de demora logística
+        unload_time = random.uniform(5.0, 6.0) * self.unload_delay_multiplier
         
         if truck.route_taken == 'Direct':
             line: ProductionLine = truck.target_obj
@@ -236,7 +214,8 @@ class PulpFacilitySimulation:
         self._record_truck(truck)
 
     def line_feeding_process(self, line: ProductionLine, batch_size_tons: float = 75.0):
-        tons_per_min = 2.5
+        # APLICACIÓN ESCENARIO 3: Demanda dinámica de la línea
+        tons_per_min = self.line_demand_tons_min
         m3_per_min = tons_per_min / density
         batch_size_m3 = batch_size_tons / density
         
@@ -389,7 +368,8 @@ class PulpFacilitySimulation:
             'arrival_time': truck.arrival_time,
             'time_in_system': truck.departure_time - truck.arrival_time,
             'volume': truck.volume,
-            'route_taken': truck.route_taken
+            'route_taken': truck.route_taken,
+            'mean_age': truck.mean_age
         })
 
     def _record_feed(self, current_time: float, volume: float, age: float):
@@ -398,6 +378,79 @@ class PulpFacilitySimulation:
             self.hourly_feed[hour] = {'total_vol': 0.0, 'vol_x_age': 0.0}
         self.hourly_feed[hour]['total_vol'] += volume
         self.hourly_feed[hour]['vol_x_age'] += (volume * age)
+
+    def get_metrics(self):
+        # 1. Ratio Directo vs Stock (por volumen)
+        vol_total = sum(t['volume'] for t in self.truck_stats)
+        vol_direct = sum(t['volume'] for t in self.truck_stats if t['route_taken'] == 'Direct')
+        ratio_picado = (vol_direct / vol_total) if vol_total > 0 else 0
+        
+        # 2. Edad promedio en la línea
+        total_vol_fed, total_age_fed = 0.0, 0.0
+        for h_data in self.hourly_feed.values():
+            total_vol_fed += h_data['total_vol']
+            total_age_fed += h_data['vol_x_age']
+        mean_feed_age_days = (total_age_fed / total_vol_fed) if total_vol_fed > 0 else 0
+        
+        # 3. Tiempo promedio de espera
+        total_wait = sum(t['time_in_system'] for t in self.truck_stats)
+        mean_truck_wait_min = (total_wait / len(self.truck_stats)) if self.truck_stats else 0
+        
+        # 4. Inanición
+        starvation_min = self.starvation_minutes
+        
+        # 5. Edad de la madera enviada a cancha
+        vol_stock = 0.0
+        age_vol_stock = 0.0
+        for t in self.truck_stats:
+            if t['route_taken'] == 'Stock':
+                vol_stock += t['volume']
+                age_vol_stock += (t['volume'] * t['mean_age'])
+        mean_stock_routing_age_days = (age_vol_stock / vol_stock) if vol_stock > 0 else 0.0
+        
+        # 6. Edad promedio del patio al terminar la simulación
+        total_vol_yard, age_vol_yard = 0.0, 0.0
+        for cols in self.stock_areas.values():
+            for col in cols:
+                if col.container.level > 0:
+                    total_vol_yard += col.container.level
+                    age_vol_yard += (col.container.level * col.current_age)
+        final_yard_age_days = (age_vol_yard / total_vol_yard) if total_vol_yard > 0 else 0.0
+        
+        # ==========================================================
+        # 7. NUEVO: DESVIACIÓN ESTÁNDAR PONDERADA (Por Volumen Diario)
+        # ==========================================================
+        edades_y_pesos = []
+        for d_info in self.daily_stats:
+            day = d_info['day']
+            age_days = d_info['mean_feed_age_days']
+            
+            if age_days is not None:
+                # Reconstruimos el volumen exacto que consumió la máquina ese día
+                day_start_hour = (day - 1) * 24
+                day_end_hour = day * 24
+                vol_dia = sum(self.hourly_feed.get(h, {}).get('total_vol', 0.0) for h in range(day_start_hour, day_end_hour))
+                
+                # Guardamos la dupla (Edad en meses, Volumen en m3)
+                if vol_dia > 0:
+                    edades_y_pesos.append((age_days / 30.4167, vol_dia))
+        
+        # Aplicamos la fórmula de varianza/desviación ponderada
+        if len(edades_y_pesos) > 1:
+            total_vol_evaluado = sum(vol for age, vol in edades_y_pesos)
+            
+            # Promedio ponderado (coincide con mean_feed_age_months)
+            mean_w = sum(age * vol for age, vol in edades_y_pesos) / total_vol_evaluado
+            
+            # Varianza ponderada
+            var_w = sum(vol * ((age - mean_w) ** 2) for age, vol in edades_y_pesos) / total_vol_evaluado
+            
+            # Desviación estándar ponderada
+            std_feed_age_months = math.sqrt(var_w)
+        else:
+            std_feed_age_months = 0.0
+            
+        return ratio_picado, mean_feed_age_days, mean_truck_wait_min, starvation_min, mean_stock_routing_age_days, final_yard_age_days, std_feed_age_months
 
 
 # ==========================================
@@ -503,31 +556,34 @@ if __name__ == "__main__":
 
     # Build DataFrames
     df_daily = pd.DataFrame(facility.daily_stats)
-    df_trucks = pd.DataFrame(facility.truck_stats)
-    df_trucks['day'] = (df_trucks['arrival_time'] // 1440).astype(int) + 1
+    # ==============================================================
+    # --- NUEVO: CONVERSIÓN DE DÍAS A MESES PARA LA VISUALIZACIÓN ---
+    # ==============================================================
+    if not df_daily.empty:
+        df_daily['mean_feed_age_months'] = (df_daily['mean_feed_age_days'] / 30.4167).round(2)
+        df_daily['mean_stock_age_months'] = (df_daily['mean_stock_age_days'] / 30.4167).round(2)
 
-    feed_rows = [
-        {'hour': h, 'day': h // 24 + 1, 'total_vol': d['total_vol'],
-         'mean_feed_age': d['vol_x_age'] / d['total_vol']}
-        for h, d in facility.hourly_feed.items() if d['total_vol'] > 0
-    ]
-    df_feed = pd.DataFrame(feed_rows).sort_values('hour')
+    df_trucks = pd.DataFrame(facility.truck_stats)
+    if not df_trucks.empty:
+        df_trucks['day'] = (df_trucks['arrival_time'] // 1440).astype(int) + 1
 
     pd.set_option('display.float_format', '{:.2f}'.format)
     pd.set_option('display.max_rows', 60)
 
     # ── [1] Daily summary ──────────────────────────────────────────────────────
-    print("\n[1] DAILY SUMMARY")
-    print(df_daily.to_string(index=False))
+    print("\n[1] DAILY SUMMARY (Edades en Meses)")
+    # Seleccionamos las columnas con los nombres nuevos en meses
+    cols_to_show = ['day', 'mean_feed_age_months', 'mean_stock_age_months', 'total_stock_vol', 
+                    'starvation_min', 'trucks_total', 'vol_direct', 'vol_stock', 'stock_pct', 'mean_truck_wait_min']
+    if not df_daily.empty:
+        print(df_daily[cols_to_show].to_string(index=False))
 
     # ── [2] Routing split ─────────────────────────────────────────────────────
     print("\n[2] TRUCK ROUTING (overall by volume)")
     n_trucks = len(df_trucks)
     
     if n_trucks > 0:
-        # Sumar el volumen agrupado por ruta
         vol_by_route = df_trucks.groupby('route_taken')['volume'].sum()
-        
         total_vol = df_trucks['volume'].sum()
         vol_direct = vol_by_route.get('Direct', 0.0)
         vol_stock = vol_by_route.get('Stock', 0.0)
@@ -548,14 +604,17 @@ if __name__ == "__main__":
               f"{int(df_daily['starvation_min'].max())} min")
 
     # ── [4] Feed age by day ───────────────────────────────────────────────────
-    print("\n[4] WEIGHTED MEAN AGE OF LOGS FED TO LINE (daily)")
-    print(df_daily[['day', 'mean_feed_age_days']].to_string(index=False))
+    print("\n[4] WEIGHTED MEAN AGE OF LOGS FED TO LINE (daily, in months)")
+    if not df_daily.empty:
+        print(df_daily[['day', 'mean_feed_age_months']].to_string(index=False))
 
     # ── [5] Stock health by day ───────────────────────────────────────────────
-    print("\n[5] STOCK HEALTH (end-of-day snapshot)")
-    print(df_daily[['day', 'total_stock_vol', 'mean_stock_age_days']].to_string(index=False))
+    print("\n[5] STOCK HEALTH (end-of-day snapshot, in months)")
+    if not df_daily.empty:
+        print(df_daily[['day', 'total_stock_vol', 'mean_stock_age_months']].to_string(index=False))
 
     # ── [6] Truck wait times ──────────────────────────────────────────────────
     print("\n[6] TRUCK WAIT TIMES (daily mean weighted, minutes)")
-    print(df_daily[['day', 'trucks_total', 'vol_direct', 'vol_stock',
-                    'stock_pct', 'mean_truck_wait_min']].to_string(index=False))
+    if not df_daily.empty:
+        print(df_daily[['day', 'trucks_total', 'vol_direct', 'vol_stock',
+                        'stock_pct', 'mean_truck_wait_min']].to_string(index=False))

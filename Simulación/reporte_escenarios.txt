@@ -1,0 +1,188 @@
+REPORTE DE SIMULACIÓN Y ANÁLISIS DE SENSIBILIDAD
+====================================================================================================
+
+####################################################################################################
+ RESULTADOS: CASO BASE (OPERACIÓN NORMAL)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    60.0%     49.8%
+Edad Promedio Mezcla (Meses)     2.72      2.74
+    Edad Final Patio (Meses)     2.54      0.62
+       Inanición Total (Min)    43261     44040
+       Espera Camiones (Min)     13.0      10.6
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          13.31           10.71
+  Desv. Est           9.47            3.78
+     Mínimo           7.50            7.50
+     Máximo          78.10           45.50
+        P90          29.20           15.10
+        P99          50.70           26.20
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value           Mejor
+      Ratio (%)  0.0000  Operador mejor
+    Edad Mezcla  0.0000 Algoritmo mejor
+       Varianza  0.0000  Operador mejor
+     Edad Patio  0.0000 Algoritmo mejor
+Espera Camiones  0.0000 Algoritmo mejor
+
+####################################################################################################
+ RESULTADOS: ESCENARIO 1: FLUJO EXTREMO (+40% LLEGADAS DE CAMIONES)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    74.4%     64.1%
+Edad Promedio Mezcla (Meses)     2.42      2.22
+    Edad Final Patio (Meses)     8.62      9.32
+       Inanición Total (Min)     3575     13831
+       Espera Camiones (Min)   9905.4    5191.1
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          51.38          103.22
+  Desv. Est          71.26          166.85
+     Mínimo           8.40            7.80
+     Máximo         461.80         1395.00
+        P90         140.61          265.34
+        P99         321.10          810.72
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value           Mejor
+      Ratio (%)  0.0000 Algoritmo mejor
+    Edad Mezcla  0.0000  Operador mejor
+       Varianza  0.0000  Operador mejor
+     Edad Patio  0.0000  Operador mejor
+Espera Camiones  0.0000 Algoritmo mejor
+
+####################################################################################################
+ RESULTADOS: ESCENARIO 2: CRISIS DE EDADES BOSQUE (POLARIZADA 1 Y 8 MESES)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    60.0%     31.6%
+Edad Promedio Mezcla (Meses)     4.76      4.76
+    Edad Final Patio (Meses)     4.69      6.37
+       Inanición Total (Min)    43416     45416
+       Espera Camiones (Min)     13.0       8.4
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          13.30            8.07
+  Desv. Est           9.43            0.29
+     Mínimo           7.40            7.60
+     Máximo          80.20           11.00
+        P90          29.30            8.40
+        P99          49.50            9.20
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value              Mejor
+      Ratio (%)  0.0000     Operador mejor
+    Edad Mezcla  0.5415 Empate Estadístico
+       Varianza  0.0000     Operador mejor
+     Edad Patio  0.0000     Operador mejor
+Espera Camiones  0.0000    Algoritmo mejor
+
+####################################################################################################
+ RESULTADOS: ESCENARIO 3: CAÍDA DE DEMANDA EN PLANTA (-20% CONSUMO)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    60.0%     42.3%
+Edad Promedio Mezcla (Meses)     2.70      2.51
+    Edad Final Patio (Meses)     6.30      7.07
+       Inanición Total (Min)    13357     21325
+       Espera Camiones (Min)     13.0       9.2
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          13.35            9.27
+  Desv. Est           9.52            1.98
+     Mínimo           7.40            7.50
+     Máximo          82.70           36.80
+        P90          29.40           11.50
+        P99          50.70           17.00
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value           Mejor
+      Ratio (%)  0.0000  Operador mejor
+    Edad Mezcla  0.0000  Operador mejor
+       Varianza  0.0000  Operador mejor
+     Edad Patio  0.0000  Operador mejor
+Espera Camiones  0.0000 Algoritmo mejor
+
+####################################################################################################
+ RESULTADOS: ESCENARIO 4: HERENCIA CRÍTICA (PATIO INICIADO CON 8 MESES DE VEJEZ)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    60.0%     40.7%
+Edad Promedio Mezcla (Meses)     2.96      2.99
+    Edad Final Patio (Meses)     2.54      0.63
+       Inanición Total (Min)    43261     45663
+       Espera Camiones (Min)     13.0       9.8
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          13.31            9.82
+  Desv. Est           9.47            3.55
+     Mínimo           7.50            7.50
+     Máximo          78.10           49.00
+        P90          29.20           13.00
+        P99          50.70           26.40
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value           Mejor
+      Ratio (%)  0.0000  Operador mejor
+    Edad Mezcla  0.0000 Algoritmo mejor
+       Varianza  0.0000  Operador mejor
+     Edad Patio  0.0000 Algoritmo mejor
+Espera Camiones  0.0000 Algoritmo mejor
+
+####################################################################################################
+ RESULTADOS: ESCENARIO 5: COLAPSO LOGÍSTICO (DESCARGAS LENTAS X3)
+####################################################################################################
+
+RESUMEN GLOBAL PROMEDIO:
+  Métrica Promedio (100 sim) Operador Algoritmo
+    Ratio Picado Directo (%)    45.7%     39.1%
+Edad Promedio Mezcla (Meses)     2.81      2.50
+    Edad Final Patio (Meses)     2.53      0.61
+       Inanición Total (Min)    96114     68867
+       Espera Camiones (Min)  24927.0   13741.8
+
+ANÁLISIS DE ESPERA DE CAMIONES EN PORTERÍA:
+Estadística Operador (Min) Algoritmo (Min)
+      Media          22.03           23.57
+  Desv. Est          21.34           25.34
+     Mínimo          19.10           19.10
+     Máximo         297.50          387.80
+        P90          19.60           19.60
+        P99         117.43          178.80
+
+PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
+            KPI p-value           Mejor
+      Ratio (%)  0.0000  Operador mejor
+    Edad Mezcla  0.0000  Operador mejor
+       Varianza  0.0000  Operador mejor
+     Edad Patio  0.0000 Algoritmo mejor
+Espera Camiones  0.0000 Algoritmo mejor
+
+====================================================================================================
+ 🏆 REPORTE FINAL: ANÁLISIS DE SENSIBILIDAD MULTI-ESCENARIO
+====================================================================================================
+                                                                     Calidad Operador  Calidad Algoritmo  Patio Operador  Patio Algoritmo  Espera Operador  Espera Algoritmo  Starvation Operador  Starvation Algoritmo
+CASO BASE (Operación Normal)                                                     2.72               2.74            2.54             0.62            12.96             10.60             43260.98              44039.73
+ESCENARIO 1: Flujo Extremo (+40% llegadas de camiones)                           2.42               2.22            8.62             9.32          9905.39           5191.07              3574.55              13830.66
+ESCENARIO 2: Crisis de Edades Bosque (Polarizada 1 y 8 meses)                    4.76               4.76            4.69             6.37            12.96              8.43             43416.06              45415.58
+ESCENARIO 3: Caída de Demanda en Planta (-20% consumo)                           2.70               2.51            6.30             7.07            12.99              9.23             13356.86              21325.43
+ESCENARIO 4: Herencia Crítica (Patio iniciado con 8 meses de vejez)              2.96               2.99            2.54             0.63            12.96              9.77             43260.98              45663.10
+ESCENARIO 5: Colapso Logístico (Descargas lentas x3)                             2.81               2.50            2.53             0.61         24927.04          13741.75             96113.78              68867.36
+====================================================================================================
