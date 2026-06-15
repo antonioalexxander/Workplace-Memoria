@@ -1,5 +1,5 @@
 class Romana:
-    def __init__(self, w1, w2, w3, w4, stateSy=None):
+    def __init__(self, w1, w2, w3, w4):
         self.W1 = w1 # Peso Edad Objetivo
         self.W2 = w2 # Peso Antiguedad de la Cancha
         self.W3 = w3 # Peso Porcentaje
@@ -44,7 +44,7 @@ class Romana:
             self.volLineDay = volShiftSimA
             self.ageLineDay = ageShiftSimA
             # Devolvemos 0.0 en las penalizaciones porque el FFCC no toma decisión heurística
-            return 'Picado Directo', 0.0, 0.0, 0.0
+            return 'Picado Directo', 0.0, 0.0, 0.0, 0.0
 
         # ------------------------------------------------
         # LÓGICA NORMAL
@@ -58,7 +58,7 @@ class Romana:
         # RESTRICCIÓN 1: FÍSICA
         if demandActual == 0 or (self.volLineHour + volTruck) * self.densityWood > demandActual:
             self._StoreSy('Descarga', volTruck, ageTruck)
-            return f'{unloadingSy} (Restricción Física)', 0.0, 0.0, 0.0
+            return f'{unloadingSy} (Restricción Física)', 0.0, 0.0, 0.0, 0.0
         
         # ESCENARIO A: LÍNEA DIRECTA
         volLineSimA = self.volLineHour + volTruck
@@ -139,14 +139,14 @@ class Romana:
             self.volLineDay += volTruck
             self.ageLineDay = ageShiftSimA 
             # Devolvemos las penalizaciones que generó el escenario ganador
-            return 'Enviado a Picado Directo', pen1A, 0.0, pen3A
+            return 'Enviado a Picado Directo', pen1A, 0.0, pen3A, pen4A
         else:
             self.storageYard[unloadingSy]['vol'] = volUnloadSySimB
             self.storageYard[unloadingSy]['age'] = ageUnloadSySimB
             self.volStorageYardDay += volTruck
             self.ageStorageYardDay = ageUnloadSySimB 
             # Devolvemos las penalizaciones que generó el escenario ganador
-            return f'Enviado a {unloadingSy}', pen1B, pen2B, pen3B
+            return f'Enviado a {unloadingSy}', pen1B, pen2B, pen3B, pen4A
 
     def _StoreSy(self, nameSy, volTruck, ageTruck):
         volActualUnload = self.storageYard[nameSy]['vol']

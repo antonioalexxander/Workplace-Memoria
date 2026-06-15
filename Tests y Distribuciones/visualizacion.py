@@ -189,10 +189,26 @@ if not df.empty:
                                     bins_grafico = np.arange(0, max_val + 2)
                                 else:
                                     bins_grafico = 'auto'
+                                    
+                                # 1. Dibujar el histograma explícitamente en 'ax'
+                                ax.hist(data_clean, bins=bins_grafico, density=True, alpha=0.4, color='gray', edgecolor='black', label='Datos Históricos')
                                 
-                                axes[i].hist(data_clean, bins=bins_grafico, density=True, alpha=0.4, color='gray', edgecolor='black')
-                                f.plot_pdf()
-                                axes[i].set_title(f"Bloque {etiqueta_rango} (n={len(data_clean)}) | Mejor (KS): {nombre_ganador.upper()}", fontweight='bold')
+                                # 2. Dibujar las distribuciones de Fitter
+                                f.plot_pdf() 
+                                
+                                # 3. Forzar el título y las etiquetas explícitamente en el objeto 'ax'
+                                ax.set_title(f"{variable}\n[Días: {texto_dias_comb}]", fontweight='bold', fontsize=14)
+                                ax.set_xlabel("Valor", fontweight='bold')
+                                ax.set_ylabel("Densidad", fontweight='bold')
+                                
+                                # 4. Forzar la leyenda para mostrar tanto el histograma como las curvas
+                                ax.legend()
+                                
+                                # 5. Ajustar el layout antes de enviar a Streamlit
+                                fig.tight_layout()
+                                
+                                # 6. Renderizar
+                                st.pyplot(fig)
                         else:
                             axes[i].text(0.5, 0.5, f"Sin datos suficientes\n(n={len(data_cruda)})", ha='center', va='center')
                             axes[i].set_title(f"Bloque {etiqueta_rango}", fontweight='bold')

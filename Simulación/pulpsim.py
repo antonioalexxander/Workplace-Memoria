@@ -66,6 +66,7 @@ class ProductionLine:
 
 class PulpFacilitySimulation:
     def __init__(self, env: simpy.Environment, strategy_func: Callable,
+                 w1=4098.0, w2=8.0, w3=16.0, w4=172.0,
                  arrival_multiplier: float = 1.0,         # Escenario 1: Congestión
                  age_crisis: bool = False,                # Escenario 2: Madera polarizada
                  line_demand_tons_min: float = 2.5,       # Escenario 3: Caída de demanda
@@ -75,6 +76,12 @@ class PulpFacilitySimulation:
         self.env = env
         self.strategy_func = strategy_func
 
+        self.w1 = w1
+        self.w2 = w2
+        self.w3 = w3
+        self.w4 = w4
+        self.penalty_history = []
+
         # --- GUARDAR PARÁMETROS DE ESTRÉS ---
         self.arrival_multiplier = arrival_multiplier
         self.age_crisis = age_crisis
@@ -83,7 +90,7 @@ class PulpFacilitySimulation:
         self.unload_delay_multiplier = unload_delay_multiplier
 
         # --- ACTIVAR ALGORITMO ---
-        self.algorithm = OperadorHumano() # Cambiar según corresponda
+        self.algorithm = Romana(w1, w2, w3, w4) # Cambiar según corresponda
 
         with open("arrivalTime.json", "r", encoding="utf-8") as f:
             self.masterArrivalTime = json.load(f)
@@ -496,7 +503,7 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
     remainingCraneVol = 500.0 
     
     # 2. Consultar al "Cerebro" (Romana)
-    decision, pen1, pen2, pen3 = sim.algorithm._EvaluateTruck(
+    decision, pen1, pen2, pen3, pen4 = sim.algorithm._EvaluateTruck(
         id=truck.truck_id,
         volTruck=truck.volume,
         ageTruck=ageTruck_months,             
@@ -506,6 +513,11 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
         maxCranePerHour=maxCranePerHour,
         ageStorageYard=ageStorageYard_months  
     )
+
+    sim.penalty_history.append({
+        'truck_id': truck.truck_id,
+        'p1': pen1, 'p2': pen2, 'p3': pen3, 'p4': pen4
+    })
     
     # 3. Ejecutar la decisión física en el simulador SimPy
     if 'Picado Directo' in decision:
@@ -531,6 +543,46 @@ def algorithm_strategy(truck: Truck, sim: PulpFacilitySimulation):
             truck.route_taken = 'Direct'
             best_line = min(sim.lines, key=lambda l: len(l.resource.queue) + l.hopper.container.level)
             truck.target_obj = best_line     
+
+def calcular_pesos_efectivos(facility):
+    # Convertimos el historial a un DataFrame de Pandas para que sea fácil promediar
+    df_penalties = pd.DataFrame(facility.penalty_history)
+    
+    if df_penalties.empty:
+        print("No hay datos de penalizaciones.")
+        return
+        
+    # 1. Calculamos el promedio de las penalizaciones puras (sin peso)
+    p1_mean = df_penalties['p1'].mean()
+    p2_mean = df_penalties['p2'].mean()
+    p3_mean = df_penalties['p3'].mean()
+    p4_mean = df_penalties['p4'].mean()
+    
+    # 2. Multiplicamos por los Pesos Óptimos (W) para obtener el Costo Aportado (C)
+    c1 = facility.w1 * p1_mean
+    c2 = facility.w2 * p2_mean
+    c3 = facility.w3 * p3_mean
+    c4 = facility.w4 * p4_mean
+    
+    c_total = c1 + c2 + c3 + c4
+    
+    # 3. Calculamos el Peso Efectivo en porcentaje
+    pe1 = (c1 / c_total) * 100 if c_total > 0 else 0
+    pe2 = (c2 / c_total) * 100 if c_total > 0 else 0
+    pe3 = (c3 / c_total) * 100 if c_total > 0 else 0
+    pe4 = (c4 / c_total) * 100 if c_total > 0 else 0
+    
+    # Creamos un DataFrame resumen para mostrarlo bonito
+    resumen = pd.DataFrame({
+        'Criterio': ['Edad Línea (P1)', 'Edad Cancha (P2)', 'Ratio 60/40 (P3)', 'Patio Estancado (P4)'],
+        'Pesos Optuna (W)': [facility.w1, facility.w2, facility.w3, facility.w4],
+        'Penalidad Media Pura (P)': [p1_mean, p2_mean, p3_mean, p4_mean],
+        'Costo Promedio (C)': [c1, c2, c3, c4],
+        'Peso Efectivo (%)': [pe1, pe2, pe3, pe4]
+    })
+    
+    print("\n[7] ANÁLISIS DE PESOS EFECTIVOS")
+    print(resumen.to_string(index=False, float_format="{:.4f}".format))
 
 # ==========================================
 # 4. EXECUTION BLOCK
@@ -618,3 +670,5 @@ if __name__ == "__main__":
     if not df_daily.empty:
         print(df_daily[['day', 'trucks_total', 'vol_direct', 'vol_stock',
                         'stock_pct', 'mean_truck_wait_min']].to_string(index=False))
+        
+    calcular_pesos_efectivos(facility)

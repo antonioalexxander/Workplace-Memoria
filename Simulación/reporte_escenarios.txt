@@ -176,7 +176,7 @@ PRUEBA DE HIPÓTESIS (TEST T-PAREADO):
 Espera Camiones  0.0000 Algoritmo mejor
 
 ====================================================================================================
- 🏆 REPORTE FINAL: ANÁLISIS DE SENSIBILIDAD MULTI-ESCENARIO
+ REPORTE FINAL: ANÁLISIS DE SENSIBILIDAD MULTI-ESCENARIO
 ====================================================================================================
                                                                      Calidad Operador  Calidad Algoritmo  Patio Operador  Patio Algoritmo  Espera Operador  Espera Algoritmo  Starvation Operador  Starvation Algoritmo
 CASO BASE (Operación Normal)                                                     2.72               2.74            2.54             0.62            12.96             10.60             43260.98              44039.73

@@ -6,9 +6,10 @@ import os
 import statistics
 from datetime import datetime
 
-W1 = 123.68
-W2 = 3.61
-W3 = 1714.90
+W1 = 4098
+W2 = 8
+W3 = 16
+W4 = 172
 # ==============================================================
 # FUNCIÓN: Formato LaTeX
 # ==============================================================
@@ -169,7 +170,7 @@ def _simulatorHour(file, fileDowntime, fileCancha):
             print(f'\n--- Operación Día {dateStr} ---')
 
             # PESOS
-            system = Romana(w1=W1, w2=W2, w3=W3)
+            system = Romana(w1=W1, w2=W2, w3=W3, w4=W4)
             
             if dateStr in canchaDict:
                 volCraneRealDay, ageStorageYard = canchaDict[dateStr]
@@ -227,7 +228,7 @@ def _simulatorHour(file, fileDowntime, fileCancha):
                         age = row['Edad']
                         hourTxt = row['Hora_Ingreso'].strftime('%H:%M:%S')
 
-                        decision, p1, p2, p3 = system._EvaluateTruck(
+                        decision, p1, p2, p3, p4 = system._EvaluateTruck(
                             id=idTruck, volTruck=vol, ageTruck=age, activeLines=lineActives, unloadingSy='Descarga',
                             remainingCraneVol=remainingCraneVol, maxCranePerHour=dynamicMaxCrane, ageStorageYard=ageStorageYard
                         )
